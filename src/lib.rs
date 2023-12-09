@@ -1,9 +1,10 @@
 #![warn(missing_docs)]
-#![warn(clippy::pedantic, clippy::perf)]
+#![warn(clippy::pedantic, clippy::perf, clippy::cargo)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::too_many_lines,
-    clippy::cast_lossless
+    clippy::cast_lossless,
+    clippy::comparison_chain  // according to their docs, this is not always optimized reliably
 )]
 
 /*!
@@ -44,12 +45,7 @@ tilemap.write(
 
 use bytemuck::{cast_slice, Pod, Zeroable};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::cmp::Ordering;
-use std::{
-    collections::HashMap,
-    io::{self, Cursor, Read, Write},
-    ops::{Index, IndexMut},
-};
+use std::{collections::HashMap, io::{self, Cursor, Read, Write}, iter, ops::{Index, IndexMut}};
 use std::fmt::{Display, Formatter};
 
 mod formatting;
@@ -495,45 +491,64 @@ impl Layer {
     ///
     /// If the width is changed, this will reallocate the data buffer!
     pub fn resize(&mut self, width: u32, height: u32) {
-        let old_width = self.width;
-        let old_height = self.height;
-        if old_width == width && old_height == height {
-            // This does nothing
+        if
+            (self.width == width && self.height == height) ||
+            ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
+        {
+            // This does nothing!
             return;
         }
-        if old_width == width {
-            match height.cmp(&old_height) {
-                Ordering::Less => self.data.truncate(height as usize),
-                Ordering::Equal => (),
-                Ordering::Greater => {
-                    let row_count = height - old_height;
-                    let rows = std::iter::repeat(Tile::default())
-                        .take(width as usize * row_count as usize);
-                    self.data.extend(rows);
-                }
+        if width == 0 || height == 0 {
+            // Clear
+            self.width = 0;
+            self.height = 0;
+            self.data.clear();
+            for sublayer in &mut self.sublayers {
+                sublayer.resize(width, height);
             }
-        } else {
-            // Need to insert into each row
-            self.data = self
-                .data
-                .as_slice()
-                .chunks(old_width as usize)
-                .flat_map(|row| {
-                    let mut row = row.to_vec();
-                    if width > old_width {
-                        let width_change = width - old_width;
-                        // Need to append data
-                        row.extend(std::iter::repeat(Tile::default()).take(width_change as usize));
-                    } else {
-                        // We wouldn't be here if width == old_width
-                        // Truncate the width
-                        row.truncate(width as usize);
-                    }
-                    row
-                })
-                .collect();
+            return;
         }
-        // Resize sublayers
+        if self.width == 0 || self.height == 0 {
+            // Construct
+            self.width = width;
+            self.height = height;
+            self.data = iter::repeat(Tile::default())
+                .take((width * height) as usize)
+                .collect();
+            for sublayer in &mut self.sublayers {
+                sublayer.resize(width, height);
+            }
+            return;
+        }
+        if self.height > height {
+            // Remove rows
+            self.data.truncate((self.width * height) as usize);
+        } else if self.height < height {
+            // Add rows
+            self.data.extend(
+                iter::repeat(Tile::default())
+                    .take((self.width * (height - self.height)) as usize)
+            );
+        }
+        if self.width != width {
+            let chunks = self.data.chunks(self.width as usize);
+            self.data = if self.width < width {
+                // Old less than new, add elements
+                chunks.flat_map(|chunk|
+                    chunk.iter().copied().chain(
+                        iter::repeat(Tile::default())
+                            .take((width - self.width) as usize)
+                    )
+                ).collect()
+            } else {
+                // Truncate elements
+                chunks.flat_map(|chunk|
+                    chunk.iter().copied().take(width as usize)
+                ).collect()
+            };
+        }
+        self.width = width;
+        self.height = height;
         for sublayer in &mut self.sublayers {
             sublayer.resize(width, height);
         }
@@ -621,6 +636,7 @@ pub enum Property {
     /// Floating point.
     Float(f32),
     /// Arbitrary bytes.
+    /// Trying to write a string with length 0 to a file will fail!
     String(Vec<u8>),
 }
 
@@ -667,14 +683,14 @@ unsafe impl Zeroable for Tile {}
 unsafe impl Pod for Tile {}
 
 impl Tile {
-    /// Returns a reference to the tile's ID.
+    /// Safely returns the tile's ID.
     // SAFETY: The size and alignment of u16
     // is the same as the struct.
     #[must_use]
-    pub fn id(&self) -> &u16 {
-        unsafe { &self.id }
+    pub fn id(&self) -> u16 {
+        unsafe { self.id }
     }
-    /// Returns a mutable reference to the tile's ID.
+    /// Safely returns a mutable reference to the tile's ID.
     ///
     /// Make sure any writes to this are big endian!
     /// Little endian won't be unsound, but will swap X and Y
@@ -684,15 +700,15 @@ impl Tile {
     pub fn id_mut(&mut self) -> &mut u16 {
         unsafe { &mut self.id }
     }
-    /// Returns a reference to the tile's position.
+    /// Safely returns a reference to the tile's position.
     // SAFETY: The size of [u8; 2]
     // is the same as u16, and [u8; 2]
     // is not #repr(Rust).
     #[must_use]
-    pub fn position(&self) -> &[u8; 2] {
-        unsafe { &self.position }
+    pub fn position(&self) -> [u8; 2] {
+        unsafe { self.position }
     }
-    /// Returns a mutable reference to the tile's position.
+    /// Safely returns a mutable reference to the tile's position.
     // SAFETY: See above.
     #[must_use]
     pub fn position_mut(&mut self) -> &mut [u8; 2] {
@@ -731,65 +747,67 @@ impl SubLayer {
     ///
     /// # Sanity
     /// The layer this is put into should be the same size as the new size.
+    ///
+    /// # Panics
+    /// Panics if the resulting area overflows a u32.
     pub fn resize(&mut self, width: u32, height: u32) {
-        let old_width = self.width;
-        let old_height = self.height;
-        if old_width == width && old_height == height {
-            // This does nothing
+        if
+            (self.width == width && self.height == height) ||
+            ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
+        {
+            // This does nothing!
             return;
         }
-        let data_len = self.cell_size as usize;
         if width == 0 || height == 0 {
-            self.data = Vec::new();
-        } else if old_width == 0 || old_height == 0 {
-            // Need to construct
-            self.data = std::iter::repeat(&self.default_value[..data_len])
+            // Clear
+            self.width = 0;
+            self.height = 0;
+            self.data.clear();
+            return;
+        }
+        let default = &self.default_value[..self.cell_size as usize];
+        if self.width == 0 || self.height == 0 {
+            // Construct
+            self.width = width;
+            self.height = height;
+            self.data = iter::repeat(default)
                 .take((width * height) as usize)
                 .flatten()
                 .copied()
                 .collect();
-        } else if old_width == width {
-            match height.cmp(&old_height) {
-                Ordering::Less =>
-                    // Remove old rows
-                    self.data.truncate(height as usize * data_len),
-                Ordering::Equal => (),
-                Ordering::Greater => {
-                    // Need to fill new rows
-                    let row_count = height - old_height;
-                    let rows = self
-                        .default_value
-                        .iter()
-                        .copied()
-                        .cycle()
-                        .take(data_len * width as usize * row_count as usize);
-                    self.data.extend(rows);
-                }
-            }
-        } else {
-            // Need to insert into each row
-            self.data = self
-                .data
-                .as_slice()
-                .chunks(data_len * old_width as usize)
-                .flat_map(|row| {
-                    let mut row = row.to_vec();
-                    if width > old_width {
-                        let width_change = width - old_width;
-                        // Need to append data
-                        row.extend(
-                            std::iter::repeat(&self.default_value[..data_len])
-                                .take(width_change as usize)
-                                .flatten(),
-                        );
-                    } else {
-                        // We wouldn't be here if width == old_width
-                        // Truncate the width
-                        row.truncate(width as usize * data_len);
-                    }
-                    row
-                })
-                .collect();
+            return;
+        }
+        if self.height > height {
+            // Remove rows
+            self.data.truncate((self.width * height * self.cell_size as u32) as usize);
+        } else if self.height < height {
+            // Add rows
+            self.data.extend(
+                iter::repeat(default)
+                    .take((self.width * (height - self.height)) as usize)
+                    .flatten()
+            );
+        }
+        if self.width != width {
+            let chunks = self.data.chunks(
+                self.width as usize * self.cell_size as usize
+            );
+            self.data = if self.width < width {
+                // Old less than new, add elements
+                chunks.flat_map(|chunk|
+                    chunk.iter().copied().chain(
+                        iter::repeat(default)
+                            .take((width - self.width) as usize)
+                            .flatten()
+                            .copied()
+                    )
+                ).collect()
+            } else {
+                // Truncate elements
+                chunks.flat_map(|chunk|
+                    chunk.iter().take(self.cell_size as usize * width as usize)
+                ).copied().collect()
+            };
         }
         self.width = width;
         self.height = height;
@@ -848,74 +866,85 @@ impl SubLayer {
             self.data = Vec::new();
             return;
         }
+        if old_size == 0 {
+            // Need to construct
+            self.data.resize(
+                (self.width * self.height * self.cell_size as u32) as usize,
+                0
+            );
+            return;
+        }
         // Resize each cell of the sublayer to the value's size
-        self.data = self
-            .data
-            .as_slice()
-            .chunks(new_size)
-            .flat_map(|cell| {
-                let mut cell = cell.to_vec();
-                if new_size > old_size {
+        self.data = if new_size > old_size {
+            self.data.as_slice()
+                .chunks(old_size)
+                .flat_map(|cell| {
                     // Need to 0-pad
-                    cell.extend(std::iter::repeat(0).take(new_size - old_size));
-                } else {
-                    // Need to truncate
-                    cell.truncate(new_size);
-                }
-                cell
-            })
-            .collect();
+                    cell.iter().chain(
+                        iter::repeat(&0).take(new_size - old_size)
+                    )
+                }).copied()
+                .collect()
+        } else {
+            self.data.as_slice()
+                .chunks(old_size)
+                .flat_map(|cell| {
+                    // Need to 0-pad
+                    cell.iter().take(new_size)
+                }).copied()
+                .collect()
+        };
     }
 
     /// Get a cell by position.
     /// Returns None if out of bounds.
     #[must_use]
-    pub fn get(&self, (x, y): (usize, usize)) -> Option<&[u8]> {
-        let size = self.cell_size as usize;
-        let start = (y * self.width as usize + x) * size;
-        let end = start + size;
-        if end > self.data.len() {
+    pub fn get(&self, (x, y): (u32, u32)) -> Option<&[u8]> {
+        if x >= self.width || y >= self.height {
             return None;
         }
+        let size = self.cell_size as usize;
+        let start = (y * self.width + x) as usize * size;
+        let end = start + size;
         Some(&self.data[start..end])
     }
 
     /// Get a cell by position, mutably.
     /// Returns None if out of bounds
-    pub fn get_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut [u8]> {
-        let size = self.cell_size as usize;
-        let start = (y * self.width as usize + x) * size;
-        let end = start + size;
-        if end > self.data.len() {
+    pub fn get_mut(&mut self, (x, y): (u32, u32)) -> Option<&mut [u8]> {
+        if x >= self.width || y >= self.height {
             return None;
         }
+        let size = self.cell_size as usize;
+        let start = (y * self.width + x) as usize * size;
+        let end = start + size;
         Some(&mut self.data[start..end])
     }
 }
 
-impl Index<(usize, usize)> for SubLayer {
+impl Index<(u32, u32)> for SubLayer {
     type Output = [u8];
 
     /// Index by position and return a reference.
     ///
     /// # Panics
     /// Panics if index is out of bounds.
-    fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+    fn index(&self, (x, y): (u32, u32)) -> &Self::Output {
         let size = self.cell_size as usize;
-        let start = (y * self.width as usize + x) * size;
+        let start = (y * self.width + x) as usize * size;
         let end = start + size;
         &self.data[start..end]
     }
 }
 
-impl IndexMut<(usize, usize)> for SubLayer {
+impl IndexMut<(u32, u32)> for SubLayer {
     /// Index by position and return a mutable reference.
     ///
     /// # Panics
     /// Panics if index is out of bounds.
-    fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
+    fn index_mut(&mut self, (x, y): (u32, u32)) -> &mut Self::Output {
         let size = self.cell_size as usize;
-        let start = (y * self.width as usize + x) * size;
+        let start = (y * self.width + x) as usize * size;
         let end = start + size;
         &mut self.data[start..end]
     }
