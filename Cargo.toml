@@ -4,7 +4,10 @@ version = "1.0.0"
 edition = "2021"
 description = "A library to help parse ClickTeam Tilemap files."
 license = "MIT"
-repository =
+repository = "https://github.com/balt-dev/ct_tilemap"
+readme = "README.md"
+keywords = ["clickteam", "tilemap", "parsing"]
+categories = ["data-structures", "parser-implementations"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
