@@ -437,6 +437,13 @@ impl TileMap {
         }
         Ok(())
     }
+
+    /// Constructs a new instance from the default.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// A single layer of a tilemap.
@@ -595,6 +602,13 @@ impl Layer {
         let index = y * self.width as usize + x;
         self.data.get_mut(index)
     }
+
+    /// Constructs a new instance from the default.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl Index<(usize, usize)> for Layer {
@@ -622,12 +636,21 @@ impl IndexMut<(usize, usize)> for Layer {
 }
 
 /// A tileset in the image.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct TileSet {
     /// Path to the tileset image.
     pub path: String,
     /// Color treated as transparent.
     pub transparent_color: (u8, u8, u8),
+}
+
+impl TileSet {
+    /// Constructs a new instance from the default.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -925,6 +948,13 @@ impl SubLayer {
         let end = start + size;
         Some(&mut self.data[start..end])
     }
+
+    /// Constructs a new instance from the default.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl Index<(u32, u32)> for SubLayer {
@@ -964,6 +994,15 @@ pub struct SubLayerLink {
     pub animation: u8,
     /// Which sublayer is this layer's animation frames linked to?
     pub animation_frame: u8,
+}
+
+impl SubLayerLink {
+    /// Constructs a new instance from the default.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl Default for SubLayerLink {
