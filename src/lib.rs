@@ -618,6 +618,16 @@ impl Layer {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Creates an iterator over each cell of the sublayer, returning a slice.
+    pub fn iter(&self) -> impl Iterator<Item = &Tile> {
+        self.data.iter()
+    }
+
+    /// Creates an iterator over each cell of the sublayer, returning a mutable slice.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
+        self.data.iter_mut()
+    }
 }
 
 impl Index<(usize, usize)> for Layer {
@@ -963,6 +973,16 @@ impl SubLayer {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates an iterator over each cell of the sublayer, returning a slice.
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> {
+        self.data.chunks(self.cell_size as usize)
+    }
+
+    /// Creates an iterator over each cell of the sublayer, returning a mutable slice.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut [u8]> {
+        self.data.chunks_mut(self.cell_size as usize)
     }
 }
 
