@@ -1,6 +1,6 @@
+use crate::{Layer, Property, SubLayer, Tile, TileMap, TileSet};
 use fmt::Debug;
 use std::fmt;
-use crate::{Layer, Property, SubLayer, Tile, TileMap, TileSet};
 use std::fmt::{Display, Formatter, Write};
 
 impl Debug for Layer {
@@ -173,13 +173,17 @@ impl Debug for TileSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(
-                f, "TileSet {{\n    path: {:#?},\n    transparent_color: #{:02X}{:02X}{:02X}\n}}",
+                f,
+                "TileSet {{\n    path: {:#?},\n    transparent_color: #{:02X}{:02X}{:02X}\n}}",
                 self.path,
-                self.transparent_color.0, self.transparent_color.1, self.transparent_color.2
+                self.transparent_color.0,
+                self.transparent_color.1,
+                self.transparent_color.2
             )
         } else {
             write!(
-                f, "TileSet {{ path: {:?}, transparent_color: {:?} }}",
+                f,
+                "TileSet {{ path: {:?}, transparent_color: {:?} }}",
                 self.path, self.transparent_color
             )
         }

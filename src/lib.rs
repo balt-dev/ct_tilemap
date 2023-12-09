@@ -45,8 +45,13 @@ tilemap.write(
 
 use bytemuck::{cast_slice, Pod, Zeroable};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::{collections::HashMap, io::{self, Cursor, Read, Write}, iter, ops::{Index, IndexMut}};
 use std::fmt::{Display, Formatter};
+use std::{
+    collections::HashMap,
+    io::{self, Cursor, Read, Write},
+    iter,
+    ops::{Index, IndexMut},
+};
 
 mod formatting;
 mod read_helper;
@@ -86,7 +91,6 @@ impl From<io::Error> for ReadError {
         ReadError::IoError(err)
     }
 }
-
 
 impl std::fmt::Debug for ReadError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -311,11 +315,11 @@ impl TileMap {
                                         layer.add_sublayer(&default_value[..cell_size as usize]);
                                     sublayer.resize(w, h);
                                     let sublayer_data = read_helper::read_compressed(&mut cursor)?;
-                                    if sublayer_data.len() != (
-                                        sublayer.width as usize
+                                    if sublayer_data.len()
+                                        != (sublayer.width as usize
                                             * sublayer.height as usize
-                                            * sublayer.cell_size as usize
-                                    ) {
+                                            * sublayer.cell_size as usize)
+                                    {
                                         return Err(ReadError::InvalidLayerLength);
                                     }
                                     sublayer.data = sublayer_data;
@@ -491,9 +495,8 @@ impl Layer {
     ///
     /// If the width is changed, this will reallocate the data buffer!
     pub fn resize(&mut self, width: u32, height: u32) {
-        if
-            (self.width == width && self.height == height) ||
-            ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
+        if (self.width == width && self.height == height)
+            || ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
         {
             // This does nothing!
             return;
@@ -526,25 +529,25 @@ impl Layer {
         } else if self.height < height {
             // Add rows
             self.data.extend(
-                iter::repeat(Tile::default())
-                    .take((self.width * (height - self.height)) as usize)
+                iter::repeat(Tile::default()).take((self.width * (height - self.height)) as usize),
             );
         }
         if self.width != width {
             let chunks = self.data.chunks(self.width as usize);
             self.data = if self.width < width {
                 // Old less than new, add elements
-                chunks.flat_map(|chunk|
-                    chunk.iter().copied().chain(
-                        iter::repeat(Tile::default())
-                            .take((width - self.width) as usize)
-                    )
-                ).collect()
+                chunks
+                    .flat_map(|chunk| {
+                        chunk.iter().copied().chain(
+                            iter::repeat(Tile::default()).take((width - self.width) as usize),
+                        )
+                    })
+                    .collect()
             } else {
                 // Truncate elements
-                chunks.flat_map(|chunk|
-                    chunk.iter().copied().take(width as usize)
-                ).collect()
+                chunks
+                    .flat_map(|chunk| chunk.iter().copied().take(width as usize))
+                    .collect()
             };
         }
         self.width = width;
@@ -617,7 +620,6 @@ impl IndexMut<(usize, usize)> for Layer {
         &mut self.data[index]
     }
 }
-
 
 /// A tileset in the image.
 #[derive(Clone, PartialEq, Eq)]
@@ -751,9 +753,8 @@ impl SubLayer {
     /// # Panics
     /// Panics if the resulting area overflows a u32.
     pub fn resize(&mut self, width: u32, height: u32) {
-        if
-            (self.width == width && self.height == height) ||
-            ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
+        if (self.width == width && self.height == height)
+            || ((self.width == 0 || self.height == 0) && (width == 0 || height == 0))
         {
             // This does nothing!
             return;
@@ -779,34 +780,38 @@ impl SubLayer {
         }
         if self.height > height {
             // Remove rows
-            self.data.truncate((self.width * height * self.cell_size as u32) as usize);
+            self.data
+                .truncate((self.width * height * self.cell_size as u32) as usize);
         } else if self.height < height {
             // Add rows
             self.data.extend(
                 iter::repeat(default)
                     .take((self.width * (height - self.height)) as usize)
-                    .flatten()
+                    .flatten(),
             );
         }
         if self.width != width {
-            let chunks = self.data.chunks(
-                self.width as usize * self.cell_size as usize
-            );
+            let chunks = self
+                .data
+                .chunks(self.width as usize * self.cell_size as usize);
             self.data = if self.width < width {
                 // Old less than new, add elements
-                chunks.flat_map(|chunk|
-                    chunk.iter().copied().chain(
-                        iter::repeat(default)
-                            .take((width - self.width) as usize)
-                            .flatten()
-                            .copied()
-                    )
-                ).collect()
+                chunks
+                    .flat_map(|chunk| {
+                        chunk.iter().copied().chain(
+                            iter::repeat(default)
+                                .take((width - self.width) as usize)
+                                .flatten()
+                                .copied(),
+                        )
+                    })
+                    .collect()
             } else {
                 // Truncate elements
-                chunks.flat_map(|chunk|
-                    chunk.iter().take(self.cell_size as usize * width as usize)
-                ).copied().collect()
+                chunks
+                    .flat_map(|chunk| chunk.iter().take(self.cell_size as usize * width as usize))
+                    .copied()
+                    .collect()
             };
         }
         self.width = width;
@@ -843,16 +848,13 @@ impl SubLayer {
     /// If the new default is smaller, all cells are truncated to its length.
     ///
     /// This will *only* not reallocate if the length of the new default is the same as the old one!
-    pub fn set_default(&mut self, mut default: &[u8]) {
+    pub fn set_default(&mut self, default: &[u8]) {
         let old_size = self.cell_size as usize;
         let new_size = default.len().min(4);
-        if default.len() > 4 {
-            default = &default[..4];
-        }
         let default = default.to_vec();
         let mut spaced_default = default.clone();
         spaced_default.resize(4, 0);
-        // SAFETY: due to truncating and resizing, this is always exactly 4 bytes long
+        // SAFETY: due to resizing, this is always exactly 4 bytes long
         let spaced_default_slice: &[u8; 4] =
             unsafe { spaced_default.as_slice().try_into().unwrap_unchecked() };
         self.default_value = *spaced_default_slice;
@@ -870,28 +872,31 @@ impl SubLayer {
             // Need to construct
             self.data.resize(
                 (self.width * self.height * self.cell_size as u32) as usize,
-                0
+                0,
             );
             return;
         }
         // Resize each cell of the sublayer to the value's size
         self.data = if new_size > old_size {
-            self.data.as_slice()
+            self.data
+                .as_slice()
                 .chunks(old_size)
                 .flat_map(|cell| {
                     // Need to 0-pad
-                    cell.iter().chain(
-                        iter::repeat(&0).take(new_size - old_size)
-                    )
-                }).copied()
+                    cell.iter()
+                        .chain(iter::repeat(&0).take(new_size - old_size))
+                })
+                .copied()
                 .collect()
         } else {
-            self.data.as_slice()
+            self.data
+                .as_slice()
                 .chunks(old_size)
                 .flat_map(|cell| {
                     // Need to 0-pad
                     cell.iter().take(new_size)
-                }).copied()
+                })
+                .copied()
                 .collect()
         };
     }
