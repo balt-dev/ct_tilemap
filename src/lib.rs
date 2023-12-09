@@ -619,12 +619,12 @@ impl Layer {
         Self::default()
     }
 
-    /// Creates an iterator over each cell of the sublayer, returning a slice.
+    /// Creates an iterator over each tile of the layer, returning a reference.
     pub fn iter(&self) -> impl Iterator<Item = &Tile> {
         self.data.iter()
     }
 
-    /// Creates an iterator over each cell of the sublayer, returning a mutable slice.
+    /// Creates an iterator over each tile of the layer, returning a mutable reference.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tile> {
         self.data.iter_mut()
     }
