@@ -477,6 +477,15 @@ pub struct Layer {
     pub sublayer_link: SubLayerLink,
 }
 
+impl IntoIterator for Layer {
+    type Item = Tile;
+    type IntoIter = std::vec::IntoIter<Tile>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
+
 impl Default for Layer {
     fn default() -> Self {
         Layer {
